@@ -1,151 +1,97 @@
 import os
+import requests
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, session, url_for
+from flask import Flask, render_template, request, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
-from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
-app.config["UPLOAD_FOLDER"] = "static/uploads"
+app.config['SECRET_KEY'] = os.environ.get("SECRET_KEY", "dev-secret")
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# ================= DATABASE MODELS =================
+# ======================
+# Database Model
+# ======================
 
 class Visitor(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100))
+    email = db.Column(db.String(120))
     ip = db.Column(db.String(100))
-    device = db.Column(db.String(300))
-    time = db.Column(db.DateTime, default=datetime.utcnow)
+    country = db.Column(db.String(100))
+    device = db.Column(db.String(200))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
-class Profile(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100))
-    bio = db.Column(db.String(500))
-    profile_image = db.Column(db.String(200))
-    background_image = db.Column(db.String(200))
+# ======================
+# Helper: Get Country from IP
+# ======================
 
-class Gallery(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    image = db.Column(db.String(200))
+def get_country(ip):
+    try:
+        response = requests.get(f"http://ip-api.com/json/{ip}").json()
+        return response.get("country", "Unknown")
+    except:
+        return "Unknown"
 
-# ================= INITIALIZE =================
+# ======================
+# Routes
+# ======================
 
-with app.app_context():
-    db.create_all()
-    if not Profile.query.first():
-        profile = Profile(
-            name="Your Name",
-            bio="Hacker Style Developer",
-            profile_image="",
-            background_image=""
-        )
-        db.session.add(profile)
-        db.session.commit()
-
-# ================= PUBLIC PAGE =================
-
-@app.route("/", methods=["GET", "POST"])
+@app.route("/")
 def home():
-    profile = Profile.query.first()
-    gallery = Gallery.query.all()
+    return render_template("home.html")
 
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
     if request.method == "POST":
-        name = request.form.get("visitor_name")
-        ip = request.remote_addr
-        device = request.headers.get("User-Agent")
+        name = request.form["name"]
+        email = request.form["email"]
+        captcha_answer = request.form["captcha"]
 
-        visitor = Visitor(name=name, ip=ip, device=device)
+        if captcha_answer != "7":
+            return "Captcha incorrect. Go back and try again."
+
+        ip = request.remote_addr
+        country = get_country(ip)
+        device = request.user_agent.string
+
+        visitor = Visitor(
+            name=name,
+            email=email,
+            ip=ip,
+            country=country,
+            device=device
+        )
+
         db.session.add(visitor)
         db.session.commit()
 
-        return redirect("/")
+        session["access_granted"] = True
+        return redirect(url_for("advanced"))
 
-    return render_template("home.html", profile=profile, gallery=gallery)
+    return render_template("signup.html")
 
-# ================= ADMIN LOGIN =================
+@app.route("/advanced")
+def advanced():
+    if not session.get("access_granted"):
+        return redirect(url_for("signup"))
+    return render_template("advanced.html")
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
+@app.route("/admin")
+def admin():
+    visitors = Visitor.query.order_by(Visitor.timestamp.desc()).all()
+    total = Visitor.query.count()
+    return render_template("admin.html", visitors=visitors, total=total)
 
-        if username == os.environ.get("ADMIN_USERNAME") and password == os.environ.get("ADMIN_PASSWORD"):
-            session["admin"] = True
-            return redirect("/dashboard")
+# ======================
+# Initialize Database
+# ======================
 
-    return render_template("login.html")
-
-# ================= DASHBOARD =================
-
-@app.route("/dashboard", methods=["GET", "POST"])
-def dashboard():
-    if not session.get("admin"):
-        return redirect("/login")
-
-    profile = Profile.query.first()
-    visitors = Visitor.query.order_by(Visitor.time.desc()).all()
-    gallery = Gallery.query.all()
-
-    if request.method == "POST":
-        profile.name = request.form.get("name")
-        profile.bio = request.form.get("bio")
-
-        # Profile image upload
-        if "profile_image" in request.files:
-            file = request.files["profile_image"]
-            if file.filename != "":
-                filename = secure_filename(file.filename)
-                file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
-                profile.profile_image = filename
-
-        # Background upload
-        if "background_image" in request.files:
-            file = request.files["background_image"]
-            if file.filename != "":
-                filename = secure_filename(file.filename)
-                file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
-                profile.background_image = filename
-
-        # Gallery upload
-        if "gallery_image" in request.files:
-            file = request.files["gallery_image"]
-            if file.filename != "":
-                filename = secure_filename(file.filename)
-                file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
-                new_img = Gallery(image=filename)
-                db.session.add(new_img)
-
-        db.session.commit()
-
-    return render_template("dashboard.html", profile=profile, visitors=visitors, gallery=gallery)
-
-# ================= DELETE IMAGE =================
-
-@app.route("/delete/<int:id>")
-def delete_image(id):
-    if not session.get("admin"):
-        return redirect("/login")
-
-    img = Gallery.query.get(id)
-    if img:
-        db.session.delete(img)
-        db.session.commit()
-
-    return redirect("/dashboard")
-
-# ================= LOGOUT =================
-
-@app.route("/logout")
-def logout():
-    session.pop("admin", None)
-    return redirect("/")
-
-# ================= RUN =================
+with app.app_context():
+    db.create_all()
 
 if __name__ == "__main__":
     app.run(debug=True)
