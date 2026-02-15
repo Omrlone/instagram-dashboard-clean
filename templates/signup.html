@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Access Advanced Info</h2>
+
+<form method="POST">
+    <input type="text" name="name" placeholder="Your Name" required><br><br>
+    <input type="email" name="email" placeholder="Your Email" required><br><br>
+
+    <p>Solve: 3 + 4 = ?</p>
+    <input type="text" name="captcha" required><br><br>
+
+    <label>
+        <input type="checkbox" required>
+        I agree that visitor analytics (IP, country, device, time) will be recorded.
+    </label><br><br>
+
+    <button type="submit">Enter</button>
+</form>
+{% endblock %}
