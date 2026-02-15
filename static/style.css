@@ -1,0 +1,23 @@
+body {
+    font-family: Arial;
+    background: #f4f4f4;
+}
+
+.container {
+    width: 800px;
+    margin: auto;
+    padding: 20px;
+    background: white;
+}
+
+.btn {
+    padding: 10px 15px;
+    background: black;
+    color: white;
+    text-decoration: none;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
